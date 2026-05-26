@@ -1,0 +1,136 @@
+/* ═══════════════════════════════════════════════════════════════
+   Global styles — Pixel Rooms theme
+   Electron + Next.js + Mantine
+   ═══════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #0A0A0A;
+  height: 100%;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Allow text selection in inputs and preview areas */
+input, textarea, video, [data-selectable] {
+  user-select: text;
+}
+
+/* ── Scrollbar — thin neon cyan ─────────────────────────────── */
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #2A2A2A;
+  border-radius: 0; /* sharp, geometric */
+}
+::-webkit-scrollbar-thumb:hover { background: #00E5FF; }
+
+/* ── Electron drag regions ──────────────────────────────────── */
+.titlebar-drag    { -webkit-app-region: drag; }
+.titlebar-no-drag { -webkit-app-region: no-drag; }
+
+/* ── Animations ─────────────────────────────────────────────── */
+@keyframes recPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.2; transform: scale(0.85); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes neonFlicker {
+  0%, 95%, 100% { opacity: 1; }
+  96%            { opacity: 0.6; }
+  97%            { opacity: 1; }
+  98%            { opacity: 0.7; }
+}
+
+.clip-enter { animation: fadeIn 0.15s ease-out; }
+
+/* ── Global focus ring ──────────────────────────────────────── */
+*:focus-visible {
+  outline: 1.5px solid #00E5FF !important;
+  outline-offset: 2px !important;
+}
+
+/* ── Page background + base text ────────────────────────────── */
+body {
+  background-color: #0A0A0A;
+  color: #FFFFFF;
+  font-family: "Barlow Condensed", "Barlow", "Arial Narrow", sans-serif;
+}
+
+/* ── Heading letter-spacing ─────────────────────────────────── */
+h1, .mantine-Title-root[data-order="1"] { letter-spacing: -0.02em; }
+h2, .mantine-Title-root[data-order="2"] { letter-spacing: -0.01em; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Pixel Rooms component overrides
+   Hover / focus / active states (functions not allowed in theme.ts
+   due to Next.js RSC serialization constraints)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Button ─────────────────────────────────────────────────── */
+.pixel-button[data-variant="filled"]:hover {
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.5);
+  transform: translateY(-1px);
+}
+.pixel-button[data-variant="outline"] {
+  border-width: 1.5px;
+}
+.pixel-button[data-variant="outline"]:hover {
+  box-shadow: 0 0 16px rgba(0, 229, 255, 0.35);
+  background-color: rgba(0, 229, 255, 0.06);
+}
+
+/* ── Card hover glow ────────────────────────────────────────── */
+.pixel-card:hover {
+  border-color: #00E5FF !important;
+  box-shadow: 0 0 24px rgba(0, 229, 255, 0.15);
+}
+
+/* ── Input focus ────────────────────────────────────────────── */
+.pixel-input:focus {
+  border-color: #00E5FF !important;
+  box-shadow: 0 0 0 1px #00E5FF, 0 0 12px rgba(0, 229, 255, 0.2) !important;
+}
+.pixel-input::placeholder { color: #444444 !important; }
+
+/* ── Select options ─────────────────────────────────────────── */
+.mantine-Select-option[data-selected] {
+  background-color: rgba(0, 229, 255, 0.12) !important;
+  color: #00E5FF !important;
+}
+.mantine-Select-option[data-hovered],
+.mantine-Select-option:hover {
+  background-color: #1A1A1A !important;
+}
+
+/* ── Tabs ───────────────────────────────────────────────────── */
+.pixel-tab[data-active] {
+  color: #00E5FF !important;
+  border-bottom-color: #00E5FF !important;
+}
+.pixel-tab:hover:not([data-active]) {
+  color: #CCCCCC !important;
+  background-color: transparent !important;
+}
+
+/* ── ActionIcon ─────────────────────────────────────────────── */
+.pixel-action-icon:hover { color: #00E5FF !important; }
+
+/* ── Switch checked ─────────────────────────────────────────── */
+.pixel-switch-track:has(input:checked) {
+  background-color: #00E5FF !important;
+  border-color: #00E5FF !important;
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.4);
+}
+
+/* ── Slider ─────────────────────────────────────────────────── */
+.mantine-Slider-bar   { background-color: #00E5FF !important; }
+.mantine-Slider-track::before { background-color: #1A1A1A !important; }

@@ -1,0 +1,55 @@
+{
+  "name": "pixel-rooms",
+  "version": "1.0.0",
+  "description": "Pixel Rooms — USB Camera Session Recorder",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently --kill-others \"next dev -p 3000\" \"wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .\"",
+    "next:build": "next build",
+    "build": "npm run next:build && electron-builder --win",
+    "build:dir": "npm run next:build && electron-builder --win --dir"
+  },
+  "build": {
+    "appId": "com.pixelrooms.app",
+    "productName": "Pixel Rooms",
+    "directories": {
+      "output": "dist-app",
+      "buildResources": "build-resources"
+    },
+    "files": [
+      "electron/**/*",
+      "out/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Pixel Rooms"
+    }
+  },
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@mantine/core": "^7.17.8",
+    "@mantine/hooks": "^7.17.8",
+    "@mantine/notifications": "^7.17.8",
+    "@tabler/icons-react": "^3.44.0",
+    "next": "^15.5.18",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "*",
+    "@types/react-dom": "*",
+    "concurrently": "*",
+    "cross-env": "*",
+    "electron": "*",
+    "electron-builder": "*",
+    "typescript": "*",
+    "wait-on": "*"
+  }
+}
