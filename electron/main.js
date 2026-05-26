@@ -116,8 +116,7 @@ ipcMain.handle('get-app-version', () => app.getVersion());
 
 async function runExport({ ffmpegPath, clipPaths, outputFormat, introConfig, outroConfig, musicConfig, outPath }) {
   ensureTmp();
-  // Delete only stale encoded files, not the saved clip webms
-  ['intro.mp4','outro.mp4','intro_slide.png','outro_slide.png','concat.mp4','final.mp4'].forEach(f => {
+  ['intro_slide.png','outro_slide.png','base.mp4','with_slides.mp4','final.mp4'].forEach(f => {
     try { fs.unlinkSync(tmp(f)); } catch {}
   });
   for (let i = 0; i < 50; i++) { try { fs.unlinkSync(tmp(`seg_${i}.mp4`)); } catch {} }
@@ -126,17 +125,13 @@ async function runExport({ ffmpegPath, clipPaths, outputFormat, introConfig, out
   const W = isPortrait ? 1080 : 1920;
   const H = isPortrait ? 1920 : 1080;
 
-  // Portrait: crop to fill (no letterbox) — scale height to H, then crop width to W from center
-  // Landscape: scale+pad with letterbox
   const scaleVf = isPortrait
       ? `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1`
       : `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1`;
 
-  // Encode each camera clip
   async function encodeClip(inp, out) {
     await ff(ffmpegPath, [
-      '-y', '-i', inp,
-      '-vf', scaleVf,
+      '-y', '-i', inp, '-vf', scaleVf,
       '-c:v', 'libx264', '-preset', 'fast', '-crf', '22',
       '-c:a', 'aac', '-b:a', '128k',
       '-ar', '44100', '-ac', '2',
@@ -145,7 +140,6 @@ async function runExport({ ffmpegPath, clipPaths, outputFormat, introConfig, out
     ]);
   }
 
-  // Encode clip segments
   const segments = [];
   for (let i = 0; i < clipPaths.length; i++) {
     const out = tmp(`seg_${i}.mp4`);
@@ -154,9 +148,6 @@ async function runExport({ ffmpegPath, clipPaths, outputFormat, introConfig, out
     segments.push(out);
   }
 
-  console.log('[export] clips done, concatenating...');
-
-  // Concat clips first (no slides yet)
   let basePath;
   if (segments.length === 1) {
     basePath = segments[0];
@@ -171,19 +162,13 @@ async function runExport({ ffmpegPath, clipPaths, outputFormat, introConfig, out
       '-map', '[v]', '-map', '[a]',
       '-c:v', 'libx264', '-preset', 'fast', '-crf', '22',
       '-c:a', 'aac', '-b:a', '128k',
-      '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
-      basePath,
+      '-pix_fmt', 'yuv420p', '-movflags', '+faststart', basePath,
     ]);
   }
 
-  // Apply intro/outro as animated overlays on top of the video
   let withSlides = basePath;
-
   if (introConfig?.enabled || outroConfig?.enabled) {
-    // Get base video duration
     const dur = await getVideoDuration(ffmpegPath, basePath);
-    console.log('[export] base duration:', dur);
-
     withSlides = tmp('with_slides.mp4');
     await applySlideOverlays({
       ffmpegPath, inputVideo: basePath, outPath: withSlides,
@@ -191,11 +176,8 @@ async function runExport({ ffmpegPath, clipPaths, outputFormat, introConfig, out
     });
   }
 
-  // Apply music
   let finalPath = withSlides;
-
   if (musicConfig?.enabled && musicConfig.filePath && fs.existsSync(musicConfig.filePath)) {
-    console.log('[export] applying music...');
     finalPath = tmp('final.mp4');
     const vol = musicConfig.volume ?? 0.8;
     if (musicConfig.mode === 'replace') {
@@ -219,120 +201,124 @@ async function runExport({ ffmpegPath, clipPaths, outputFormat, introConfig, out
     }
   }
 
-  console.log('[export] copying to output...');
   fs.copyFileSync(finalPath, outPath);
   console.log('[export] DONE');
 }
 
-// Get video duration in seconds
 function getVideoDuration(ffmpegPath, inputPath) {
   return new Promise((resolve) => {
-    const proc = execFile(ffmpegPath, ['-i', inputPath], { maxBuffer: 10 * 1024 * 1024 }, (_err, _out, stderr) => {
+    execFile(ffmpegPath, ['-i', inputPath], { maxBuffer: 10 * 1024 * 1024 }, (_err, _out, stderr) => {
       const m = stderr.match(/Duration:\s*(\d+):(\d+):([\d.]+)/);
-      if (m) {
-        const secs = parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 + parseFloat(m[3]);
-        resolve(secs);
-      } else {
-        resolve(10); // fallback
-      }
+      resolve(m ? parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 + parseFloat(m[3]) : 10);
     });
   });
 }
 
-// Render a slide image to PNG at target size
-async function renderSlideToPng(ffmpegPath, cfg, name, W, H) {
+// Prepare slide image: scale to fit 40%×30% of screen, preserve alpha
+// Uses ffmpeg rgba pixel format so alpha is NOT lost
+async function prepareSlideImage(ffmpegPath, cfg, name, W, H) {
   const imgPath = cfg.filePath ? w(cfg.filePath) : null;
   const useImage = imgPath && fs.existsSync(imgPath);
   const outPng = tmp(`${name}_slide.png`);
 
-  // Scale image to fill W×H (cover, crop center) with transparent bg support
-  const scaleFilter = `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H}`;
+  const logoMaxW = Math.round(W * 0.4);
+  const logoMaxH = Math.round(H * 0.3);
 
   if (useImage) {
+    // Scale preserving aspect ratio, output as rgba PNG to keep transparency
     await ff(ffmpegPath, [
       '-y', '-i', imgPath,
-      '-vf', scaleFilter,
+      '-vf', `scale=${logoMaxW}:${logoMaxH}:force_original_aspect_ratio=decrease`,
+      '-pix_fmt', 'rgba',
       '-frames:v', '1', outPng,
     ]);
   } else {
-    const hex = (cfg.color || '#000000').replace('#', '');
+    const hex = (cfg.color || '#222222').replace('#', '');
+    const bh = Math.round(logoMaxH * 0.4);
     await ff(ffmpegPath, [
-      '-y',
-      '-f', 'lavfi', '-i', `color=0x${hex}:size=${W}x${H}:rate=1`,
+      '-y', '-f', 'lavfi',
+      '-i', `color=0x${hex}FF:size=${logoMaxW}x${bh}:rate=1`,
+      '-pix_fmt', 'rgba',
       '-frames:v', '1', outPng,
     ]);
   }
 
-  // If there's text, overlay it
   if (cfg.text && cfg.text.trim()) {
     const txtPng = tmp(`${name}_slide_txt.png`);
     const t = cfg.text.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/:/g, '\\:');
-    const fs2 = Math.round(H * 0.06);
+    const fs2 = Math.round(logoMaxH * 0.18);
     await ff(ffmpegPath, [
       '-y', '-i', outPng,
-      '-vf', `drawtext=text='${t}':fontsize=${fs2}:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2:shadowcolor=black:shadowx=3:shadowy=3`,
-      '-frames:v', '1', txtPng,
+      '-vf', `drawtext=text='${t}':fontsize=${fs2}:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2:shadowcolor=black:shadowx=2:shadowy=2`,
+      '-pix_fmt', 'rgba', '-frames:v', '1', txtPng,
     ]);
     fs.copyFileSync(txtPng, outPng);
   }
 
-  return outPng;
+  return { png: outPng, logoMaxW, logoMaxH };
 }
 
-// Apply intro/outro as animated slide overlays (slide in from left, hold, slide out to right)
+// Overlay slide as animation: slide in from left → hold center → slide out to right
 async function applySlideOverlays({ ffmpegPath, inputVideo, outPath, introConfig, outroConfig, W, H, totalDur }) {
-  const fps = 30;
-  // Animation: 0.5s slide in, hold for (duration-1)s, 0.5s slide out
-  const animIn = 0.5;
-  const animOut = 0.5;
+  const animIn = 0.4;
+  const animOut = 0.4;
 
   const inputs = ['-i', inputVideo];
   let filterParts = [];
-  let lastVideo = '0:v';
-  let lastAudio = '0:a';
+  // Convert base video to yuva444p so overlay alpha works correctly
+  filterParts.push(`[0:v]format=yuva444p[base]`);
+  let lastVideo = 'base';
   let inputIdx = 1;
 
-  // INTRO overlay
   if (introConfig?.enabled) {
     const introDur = introConfig.duration || 3;
-    const slidePng = await renderSlideToPng(ffmpegPath, introConfig, 'intro', W, H);
-    inputs.push('-loop', '1', '-t', String(introDur + 0.1), '-i', slidePng);
+    const { png, logoMaxW, logoMaxH } = await prepareSlideImage(ffmpegPath, introConfig, 'intro', W, H);
+    const centerX = Math.round((W - logoMaxW) / 2);
+    const centerY = Math.round((H - logoMaxH) / 2);
+
+    inputs.push('-loop', '1', '-t', String(introDur + 0.1), '-i', png);
     const si = inputIdx++;
 
-    // x position: slide in from -W to 0 over animIn seconds, hold, slide out from 0 to W over animOut seconds
-    const holdStart = animIn;
-    const holdEnd = introDur - animOut;
-    const xExpr = `if(lt(t,${animIn}),${W}-t/${animIn}*${W},if(lt(t,${holdEnd}),0,-(t-${holdEnd})/${animOut}*${W}))`;
+    // Convert overlay to yuva444p to preserve alpha
+    filterParts.push(`[${si}:v]format=yuva444p[ov${si}]`);
 
-    filterParts.push(`[${lastVideo}][${si}:v]overlay=x='${xExpr}':y=0:shortest=0:eof_action=pass[v${si}]`);
+    const holdEnd = introDur - animOut;
+    // slide in from left (-logoMaxW → centerX), hold, slide out to right (centerX → W)
+    const xExpr = `if(lt(t,${animIn}),-${logoMaxW}+t/${animIn}*(${centerX}+${logoMaxW}),if(lt(t,${holdEnd}),${centerX},${centerX}+(t-${holdEnd})/${animOut}*${W}))`;
+
+    filterParts.push(`[${lastVideo}][ov${si}]overlay=x='${xExpr}':y=${centerY}:shortest=0:eof_action=pass:format=yuv420[v${si}]`);
     lastVideo = `v${si}`;
   }
 
-  // OUTRO overlay
   if (outroConfig?.enabled) {
     const outroDur = outroConfig.duration || 3;
-    const slidePng = await renderSlideToPng(ffmpegPath, outroConfig, 'outro', W, H);
-    inputs.push('-loop', '1', '-t', String(outroDur + 0.1), '-i', slidePng);
+    const { png, logoMaxW, logoMaxH } = await prepareSlideImage(ffmpegPath, outroConfig, 'outro', W, H);
+    const centerX = Math.round((W - logoMaxW) / 2);
+    const centerY = Math.round((H - logoMaxH) / 2);
+
+    inputs.push('-loop', '1', '-t', String(outroDur + 0.1), '-i', png);
     const si = inputIdx++;
 
-    // Outro appears near the end of the video
+    filterParts.push(`[${si}:v]format=yuva444p[ov${si}]`);
+
     const outroStart = Math.max(0, totalDur - outroDur);
     const holdEnd = outroDur - animOut;
-    // t relative to outroStart
-    const xExpr = `if(lt(t-${outroStart},0),-${W},if(lt(t-${outroStart},${animIn}),${W}-(t-${outroStart})/${animIn}*${W},if(lt(t-${outroStart},${holdEnd}),0,-(t-${outroStart}-${holdEnd})/${animOut}*${W})))`;
+    const tr = `(t-${outroStart})`;
+    const xExpr = `if(lt(t,${outroStart}),-${logoMaxW},if(lt(${tr},${animIn}),-${logoMaxW}+${tr}/${animIn}*(${centerX}+${logoMaxW}),if(lt(${tr},${holdEnd}),${centerX},${centerX}+(${tr}-${holdEnd})/${animOut}*${W})))`;
 
-    filterParts.push(`[${lastVideo}][${si}:v]overlay=x='${xExpr}':y=0:shortest=0:eof_action=pass[v${si}]`);
+    filterParts.push(`[${lastVideo}][ov${si}]overlay=x='${xExpr}':y=${centerY}:shortest=0:eof_action=pass:format=yuv420[v${si}]`);
     lastVideo = `v${si}`;
   }
 
-  const filterComplex = filterParts.join(';');
+  // Final output must be yuv420p for h264
+  filterParts.push(`[${lastVideo}]format=yuv420p[vout]`);
 
   await ff(ffmpegPath, [
     '-y',
     ...inputs,
-    '-filter_complex', filterComplex,
-    '-map', `[${lastVideo}]`,
-    '-map', `0:a`,
+    '-filter_complex', filterParts.join(';'),
+    '-map', '[vout]',
+    '-map', '0:a',
     '-c:v', 'libx264', '-preset', 'fast', '-crf', '22',
     '-c:a', 'aac', '-b:a', '128k',
     '-pix_fmt', 'yuv420p',
